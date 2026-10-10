@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #f3f1ec;
+  --color-panel: #fbfaf7;
+  --color-line: #e3dfd6;
+  --color-ink: #1e2a44;
+  --color-muted: #6b6559;
+  --color-accent: #2f4b9a;
+  --color-accent-strong: #233a7d;
+  --color-accent-soft: #e6ebf7;
+  --color-danger: #a23a2c;
+  --color-danger-soft: #fbeae6;
+  --color-warn: #8a5a10;
+  --color-warn-soft: #fbf2df;
+  --font-sans: ui-sans-serif, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Ruled "practical page" editor (CodeMirror): text lines sit on the rules, margin line at 64px. */
+.paper-editor {
+  --rule: 32px;
+  --margin-line: 64px;
+  --text-left: 76px;
+  min-height: 640px;
+  background-color: #fffefa;
+  background-image:
+    linear-gradient(to right, transparent calc(var(--margin-line) - 1px), #e9a7a7 calc(var(--margin-line) - 1px), #e9a7a7 var(--margin-line), transparent var(--margin-line)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--rule) - 1px), #c9d9ee calc(var(--rule) - 1px), #c9d9ee var(--rule));
+  background-position: 0 0, 0 14px;
+  cursor: text;
+}
+
+.paper-editor .cm-editor {
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  color: var(--color-ink);
+}
+
+.paper-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.paper-editor .cm-scroller {
+  overflow: visible;
+  font-family: inherit;
+  line-height: var(--rule);
+}
+
+.paper-editor .cm-content {
+  min-height: 626px;
+  padding: 14px 20px 32px var(--text-left);
+  caret-color: var(--color-accent);
+}
+
+.paper-editor .cm-line {
+  padding: 0;
+}
+
+.paper-editor .cm-placeholder {
+  color: #a39d90;
+}
+
+.paper-editor .cm-question {
+  font-weight: 500;
+}
+
+/* Question number hangs into the margin, right-aligned just before the red line. Net width is 0. */
+.paper-editor .cm-qlabel {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 56px;
+  margin-left: -70px;
+  margin-right: 14px;
+  padding-right: 6px;
+  text-align: right;
+  white-space: nowrap;
+  color: #4a4f63;
+}
+
+.paper-editor .cm-anslabel {
+  color: #6a7395;
+  font-weight: 400;
+}
+
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+
+/* Print route: exact A4 pages, nothing else. */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+.print-root {
+  margin: 0;
+  padding: 0;
+  background: #fff;
+}
+
+.print-page {
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  break-after: page;
+  page-break-after: always;
+}
+
+.print-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff;
+  }
+  [data-screen-only] {
+    display: none;
+  }
+}
