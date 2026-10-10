@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { PageSvg } from "@/components/preview/PageSvg";
 import { layoutDocument, type DocumentLayout } from "@/lib/layout/layout";
 import { createCanvasMeasurer, loadFonts } from "@/lib/layout/measure";
+import { safePdfFileName } from "@/lib/pdf/filename";
 import { exportPayloadSchema, type RenderSettings } from "@/lib/validation/schema";
 
 declare global {
@@ -13,15 +14,25 @@ declare global {
   }
 }
 
+/** Payload from the export route (headless Chromium) or from the studio page hosting this iframe. */
+function readPayload(): unknown {
+  if (window.__INKPAPER_PAYLOAD__ !== undefined) return window.__INKPAPER_PAYLOAD__;
+  try {
+    return window.parent !== window ? window.parent.__INKPAPER_PRINT_PAYLOAD__ : undefined;
+  } catch {
+    return undefined; // different origin: never trust it
+  }
+}
+
 /**
- * Print renderer: reads the validated payload injected by the export route, waits for the
- * handwriting fonts, then runs the exact same layout + SVG renderer as the on-screen preview.
+ * Print renderer: validates the payload, waits for the handwriting fonts, then runs the exact
+ * same layout + SVG renderer as the on-screen preview.
  */
 export function PrintView() {
-  const [result, setResult] = useState<{ layout: DocumentLayout; settings: RenderSettings } | null>(null);
+  const [result, setResult] = useState<{ layout: DocumentLayout; settings: RenderSettings; fileTitle: string } | null>(null);
 
   useEffect(() => {
-    const parsed = exportPayloadSchema.safeParse(window.__INKPAPER_PAYLOAD__);
+    const parsed = exportPayloadSchema.safeParse(readPayload());
     if (!parsed.success) {
       window.__INKPAPER_STATUS__ = { ok: false, error: "Invalid export payload." };
       return;
@@ -30,7 +41,7 @@ export function PrintView() {
     loadFonts(settings.fontId, doc.text)
       .then(() => {
         const layout = layoutDocument(doc, settings, createCanvasMeasurer(settings.fontId));
-        setResult({ layout, settings });
+        setResult({ layout, settings, fileTitle: safePdfFileName(doc.title).replace(/\.pdf$/, "") });
       })
       .catch((error: unknown) => {
         window.__INKPAPER_STATUS__ = { ok: false, error: error instanceof Error ? error.message : "Font loading failed." };
@@ -42,6 +53,8 @@ export function PrintView() {
     // Signal readiness only after the pages are in the DOM and fonts are settled.
     document.fonts.ready.then(() => {
       requestAnimationFrame(() => {
+        // Browsers suggest the document title as the PDF file name (set late so Next's metadata doesn't override it).
+        document.title = result.fileTitle;
         window.__INKPAPER_STATUS__ = { ok: true, pages: result.layout.pages.length };
       });
     });

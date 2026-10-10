@@ -1,5 +1,6 @@
 "use client";
 
+import { formatSheetDate } from "@/lib/document/date";
 import { FONTS } from "@/lib/handwriting/fonts";
 import { INK_SHADES } from "@/lib/handwriting/ink";
 import { LIMITS, type RenderSettings } from "@/lib/validation/schema";
@@ -29,8 +30,41 @@ function realismLabel(value: number): string {
 
 export function SettingsPanel({ settings, onSettings, onResetSettings, doc, onTitle, onMetadata }: SettingsPanelProps) {
   const m = doc.metadata;
+  const practical = settings.paperType === "practical";
   return (
     <div className="pb-6">
+      <Section title="Assignment">
+        <TextField
+          label={practical ? "Topic" : "Title (optional)"}
+          value={doc.title}
+          onChange={onTitle}
+          placeholder={practical ? "e.g. Sieve of Eratosthenes" : "e.g. Physics Practical 3"}
+          hint={practical ? "Written in the TOPIC box on page 1." : "Written centred and underlined at the top of page 1."}
+        />
+        <TextField
+          label="Date"
+          value={m.date}
+          onChange={(date) => onMetadata({ date })}
+          placeholder="DD/MM/YYYY"
+          action={{ label: "Today", onClick: () => onMetadata({ date: formatSheetDate(new Date()) }) }}
+          hint={practical ? "Written in the DATE box on page 1." : settings.showStudentHeader ? "Written with the student details." : "Printed when student details are on."}
+        />
+        <Toggle
+          label="Student details on page 1"
+          hint="Name, roll number, course and subject"
+          checked={settings.showStudentHeader}
+          onChange={(showStudentHeader) => onSettings({ showStudentHeader })}
+        />
+        {settings.showStudentHeader && (
+          <div className="grid grid-cols-2 gap-2">
+            <TextField label="Name" value={m.studentName} onChange={(studentName) => onMetadata({ studentName })} />
+            <TextField label="Roll no." value={m.rollNumber} onChange={(rollNumber) => onMetadata({ rollNumber })} />
+            <TextField label="Course / class" value={m.course} onChange={(course) => onMetadata({ course })} />
+            <TextField label="Subject" value={m.subject} onChange={(subject) => onMetadata({ subject })} />
+          </div>
+        )}
+      </Section>
+
       <Section title="Handwriting">
         <div className="grid grid-cols-1 gap-1.5" role="radiogroup" aria-label="Handwriting style">
           {FONTS.map((font) => {
@@ -158,12 +192,6 @@ export function SettingsPanel({ settings, onSettings, onResetSettings, doc, onTi
         {settings.paperType !== "plain" && (
           <Toggle label="Margin line" checked={settings.showMarginLine} onChange={(showMarginLine) => onSettings({ showMarginLine })} />
         )}
-        {settings.paperType === "practical" && (
-          <>
-            <TextField label="Topic (written in the TOPIC box)" value={doc.title} onChange={onTitle} placeholder="e.g. Sieve of Eratosthenes" />
-            <TextField label="Date (written in the DATE box)" value={doc.metadata.date} onChange={(date) => onMetadata({ date })} placeholder="10/10/2026" />
-          </>
-        )}
         <Toggle label="Page numbers" checked={settings.showPageNumbers} onChange={(showPageNumbers) => onSettings({ showPageNumbers })} />
       </Section>
 
@@ -191,24 +219,6 @@ export function SettingsPanel({ settings, onSettings, onResetSettings, doc, onTi
           checked={settings.gapBeforeQuestions}
           onChange={(gapBeforeQuestions) => onSettings({ gapBeforeQuestions })}
         />
-      </Section>
-
-      <Section title="Title & student details">
-        <TextField label="Assignment title (optional)" value={doc.title} onChange={onTitle} placeholder="e.g. Physics Practical 3" />
-        <Toggle
-          label="Show student details on page 1"
-          checked={settings.showStudentHeader}
-          onChange={(showStudentHeader) => onSettings({ showStudentHeader })}
-        />
-        {settings.showStudentHeader && (
-          <div className="grid grid-cols-2 gap-2">
-            <TextField label="Name" value={m.studentName} onChange={(studentName) => onMetadata({ studentName })} />
-            <TextField label="Roll no." value={m.rollNumber} onChange={(rollNumber) => onMetadata({ rollNumber })} />
-            <TextField label="Course / class" value={m.course} onChange={(course) => onMetadata({ course })} />
-            <TextField label="Subject" value={m.subject} onChange={(subject) => onMetadata({ subject })} />
-            <TextField label="Date" value={m.date} onChange={(date) => onMetadata({ date })} placeholder="10/10/2026" />
-          </div>
-        )}
       </Section>
 
       <div className="px-5 pt-4">

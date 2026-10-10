@@ -23,6 +23,10 @@ function hostnameOf(value: string | null): string | null {
 }
 
 export async function POST(request: NextRequest) {
+  // Hosted deployments (e.g. Vercel) have no Chromium; the studio then prints in the browser instead.
+  if (process.env.VERCEL || process.env.INKPAPER_DISABLE_SERVER_EXPORT === "1") {
+    return error("Server-side PDF export is disabled on this deployment. The browser's print dialog is used instead.", 501);
+  }
   const url = request.nextUrl;
   // This is a single-user local tool: only accept requests addressed to (and coming from) localhost.
   const host = hostnameOf(request.headers.get("host"));
