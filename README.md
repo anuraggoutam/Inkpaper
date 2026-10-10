@@ -4,41 +4,50 @@ InkPaper turns your own typed or solved assignment into handwritten-style A4 pag
 
 Type or paste on the ruled "practical page" on the left. The right side writes every line out by hand as you type. Questions are written on their own line, and answers start on the next line, in the ink colours you choose.
 
-Everything runs on your computer. Nothing is uploaded, and there are no accounts, analytics or cloud services.
+Everything happens **in your browser**. Your text and files are never uploaded, and there are no accounts, analytics or tracking. InkPaper is open source under the [MIT License](LICENSE).
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fanuraggoutam%2FAssignment)
 
 ---
 
-## Requirements
+## Two ways to run it
 
+| | Hosted (e.g. Vercel) | Local (`npm run dev` / `npm start`) |
+| --- | --- | --- |
+| Setup | One click: deploy the repo | Node.js + `npm install` |
+| PDF export | Browser print dialog, choose **Save as PDF** | Direct `.pdf` download via a local Chromium (falls back to the print dialog if Chromium isn't installed) |
+| Where text is processed | In the visitor's browser only | In your browser and on your own machine |
+| Offline | After the first visit, while the tab is open | Yes |
+
+### Deploy to Vercel
+1. Fork this repository, or use the **Deploy with Vercel** button above.
+2. Import it in Vercel. The defaults are correct: framework **Next.js**, build command `next build`, no environment variables needed.
+3. Deploy. On Vercel the server-side Chromium export is switched off automatically (it detects `VERCEL`), and **Export PDF** opens the browser's print dialog instead. The PDF still has selectable text and embedded handwriting fonts.
+
+Any other Node host works too. Set `INKPAPER_DISABLE_SERVER_EXPORT=1` there unless the host has Chromium installed for Playwright.
+
+### Run locally
+
+Requirements:
 - **Node.js 20.9 or newer** (tested with Node 22) and npm
 - **Windows 10/11**, macOS or Linux
 - About 300 MB of disk space for dependencies plus the local Chromium used for PDF export
 
-## Install (one time)
-
 ```bash
 npm install
-npx playwright install chromium
-```
-
-The second command downloads the local Chromium build that InkPaper uses to print PDFs. Nothing else is downloaded later.
-
-## Run
-
-```bash
+npx playwright install chromium   # optional: enables direct .pdf downloads
 npm run dev
 ```
 
-Then open **http://127.0.0.1:3000** in Chrome or Edge.
+Then open **http://127.0.0.1:3000** in Chrome or Edge. For a faster, optimised version run `npm run build` and then `npm start` (same address). Once installed, the local app works fully offline.
 
-For a faster, optimised version:
+### Configuration (optional)
 
-```bash
-npm run build
-npm start
-```
-
-This also runs on http://127.0.0.1:3000. Once installed, the app works fully offline.
+| Variable | Effect |
+| --- | --- |
+| `NEXT_PUBLIC_INKPAPER_EXPORT=browser` / `server` | Force the export method. The default is server on localhost and browser everywhere else. |
+| `INKPAPER_DISABLE_SERVER_EXPORT=1` | Turn off the `/api/export` Chromium route. It is turned off automatically on Vercel. |
+| `NEXT_PUBLIC_INKPAPER_MAX_UPLOAD_MB` | Import size limit. The default is 20. |
 
 ---
 
@@ -92,17 +101,21 @@ The handwriting "variation" is deterministic. The same text, settings and seed a
 ### Export
 Click **Export PDF**, or press **Ctrl+P** (Cmd+P on a Mac). The file is named after the title, for example `physics-practical-3-handwritten.pdf`, or `assignment-handwritten.pdf` if there is no title.
 
-The PDF is A4 portrait. It keeps selectable and searchable text and embeds the handwriting fonts. It is produced by the same renderer as the preview, running in a local headless Chromium. It is not a screenshot.
+- **Hosted site (e.g. Vercel):** the browser's print dialog opens with your handwritten pages. Choose **Save as PDF**, paper size **A4**, margins **None** (or Default) and scale **100%**. Chrome and Edge give the closest match to the preview.
+- **Running locally with Chromium installed:** the PDF downloads directly. It is printed by a local headless Chromium using the same renderer as the preview.
+
+Both ways give an A4 portrait PDF with selectable, searchable text and embedded handwriting fonts. It is not a screenshot.
 
 ---
 
 ## Privacy
 
-- Files are read **in your browser** and kept in memory. They are never uploaded or stored on disk.
-- When you export, the text is sent only to the InkPaper server on your own machine (`127.0.0.1`). That server prints it with a local Chromium and immediately returns the PDF. Nothing is stored or logged; assignment text is never written to logs.
+- Files are read **in your browser** and kept in memory. They are never uploaded.
+- **Hosted:** the web server only delivers the app. Your text, files and PDFs never leave your browser, because export uses your browser's own print engine.
+- **Local:** when you export, the text is sent only to the InkPaper server on your own machine (`127.0.0.1`). That server prints it with a local Chromium and immediately returns the PDF. Nothing is stored or logged.
 - Your style settings are remembered in your browser's localStorage. Your text, title and student details are stored there only if you tick **Keep my work in this browser**, and they never leave the browser.
-- At runtime the app makes no external network requests. The export browser blocks every request that is not to the local app.
-- InkPaper is a **personal, single-user local tool**. Do not expose it to a network or the internet without a separate security review. The export API refuses requests that are not addressed to localhost.
+- The app makes no external network requests: no analytics, no CDNs, no remote fonts.
+- The local Chromium export API (`/api/export`) only accepts requests addressed to localhost, and it is disabled on hosted deployments.
 
 ---
 
@@ -140,13 +153,16 @@ All of these licences allow redistribution and embedding in PDFs. The font files
 - **DOCX:** tables are flattened to text rows; images, equations, footnotes, text boxes and text colours are not kept.
 - **Unsupported characters:** characters outside Latin/Latin-Extended, such as Greek letters (π, Σ), many math symbols, arrows in some styles and emoji, are not in the handwriting fonts. They print in a plain system font, and the app lists them under the editor. Devanagari (Hindi) is written with the Kalam handwriting fallback; check the result.
 - Multiple spaces inside a line become a single handwritten word gap. Leading indentation is kept.
-- A4 portrait only. The preview is designed for Chromium-based browsers (Chrome/Edge). Other browsers may wrap a word differently in the preview, but the exported PDF is always produced by Chromium.
+- A4 portrait only. The preview and the browser print export are designed for Chromium-based browsers (Chrome/Edge). Firefox and Safari work, but may wrap a word differently or ignore some print settings. The local server export always uses Chromium.
+- The hosted export goes through the print dialog, so it can't produce a file without that one extra click; that is a browser security rule.
 
 ---
 
 ## Troubleshooting
 
-**"Chromium for PDF export is not installed"**: run `npx playwright install chromium` in the project folder, then restart `npm run dev`. Behind a proxy, set `HTTPS_PROXY` for that one install command.
+**Running locally, Export opens the print dialog instead of downloading**: the local Chromium isn't installed. Run `npx playwright install chromium` in the project folder, then restart `npm run dev`. Behind a proxy, set `HTTPS_PROXY` for that one install command. The print dialog works fine meanwhile.
+
+**The printed PDF has a date/URL header, white margins or the wrong size**: in the print dialog set *Margins* to **None**, *Paper size* to **A4**, *Scale* to **100%**, and untick *Headers and footers*.
 
 **"Could not reach the local InkPaper server"**: the terminal running `npm run dev` / `npm start` was closed. Start it again.
 

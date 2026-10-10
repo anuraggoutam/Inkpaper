@@ -2,7 +2,12 @@
   "name": "inkpaper",
   "version": "1.0.0",
   "private": true,
-  "description": "Local-first assignment-to-handwriting studio",
+  "description": "Turn typed assignments into handwritten-style A4 PDF pages, right in your browser.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anuraggoutam/Assignment.git"
+  },
   "engines": {
     "node": ">=20.9"
   },

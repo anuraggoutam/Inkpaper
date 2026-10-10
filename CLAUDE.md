@@ -2,7 +2,9 @@
 
 > **Goal:** Build a polished, fully local Windows-friendly web app that converts a user's own solved assignment text/PDF/DOCX/TXT into clean, handwritten-style A4 PDF pages.
 >
-> **Operating mode:** Local-only. No deployment, accounts, cloud storage, analytics, external APIs, telemetry, or paid services. Uploaded content stays on the user's computer. The final output must be a real, printable PDF—not a screenshot of the app.
+> **Operating mode:** Client-side first. The app is open source (MIT) and may be deployed as a static-style Next.js site (e.g. Vercel) or run locally. No accounts, cloud storage, analytics, external APIs, telemetry, or paid services. Uploaded content and assignment text stay in the user's browser (or on their own machine when run locally). The final output must be a real, printable PDF—not a screenshot of the app.
+>
+> **Deployment update (Oct 2026):** Hosted deployments export via the browser's print dialog (`printInBrowser`, same `/print` renderer). The Playwright/Chromium export route is for local runs only and is disabled when `VERCEL` or `INKPAPER_DISABLE_SERVER_EXPORT=1` is set. Never send assignment text to a hosted server.
 >
 > **Instructions for Claude Code:** Read this entire document before coding. Inspect the existing repository first. Implement the app end-to-end, run it, run checks, and fix issues. Do not stop after producing a plan or mock UI. Make sensible decisions without repeatedly asking the user. Keep the implementation simple, reliable, and visually polished.
 
@@ -31,7 +33,7 @@ This is a formatting/rendering tool. Do not invent answers or silently rewrite a
 
 ## 2. Hard constraints
 
-- Local-only runtime. Do not deploy anything.
+- Hosted deployments must keep all document processing in the browser; server-side export only on the user's own machine.
 - No database, auth, cloud storage, SaaS dependencies, external APIs, telemetry, analytics, or tracking.
 - No external network requests at runtime.
 - Do not upload documents anywhere.

@@ -27,6 +27,7 @@ export function Studio() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [printHint, setPrintHint] = useState(false);
   const [caretLine, setCaretLine] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(true);
   const [mobileView, setMobileView] = useState<"write" | "preview">("write");
@@ -111,7 +112,7 @@ export function Studio() {
     setError(null);
     setStatus({ kind: "exporting" });
     try {
-      await exportPdf(doc, settings);
+      setPrintHint((await exportPdf(doc, settings)) === "print");
     } catch (err) {
       setError(err instanceof Error ? err.message : "PDF export failed.");
     } finally {
@@ -208,6 +209,12 @@ export function Studio() {
                 {error}
               </Notice>
             )}
+            {printHint && (
+              <Notice tone="info" onDismiss={() => setPrintHint(false)}>
+                In the print dialog choose <strong>Save as PDF</strong>, paper size <strong>A4</strong>, margins <strong>None</strong> or
+                Default, and scale <strong>100%</strong>. Your text never leaves this browser.
+              </Notice>
+            )}
             {fontError && <Notice tone="error">{fontError} Reinstall the app files in public/fonts (see README).</Notice>}
             {warnings.map((warning) => (
               <Notice key={warning} tone="warn" onDismiss={() => setWarnings((w) => w.filter((x) => x !== warning))}>
@@ -278,7 +285,7 @@ export function Studio() {
           <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent/60 bg-accent-soft/80">
             <div className="text-center">
               <p className="text-lg font-semibold text-accent-strong">Drop to import</p>
-              <p className="mt-1 text-sm text-accent">PDF (with selectable text), DOCX or TXT · up to 20 MB · stays on this computer</p>
+              <p className="mt-1 text-sm text-accent">PDF (with selectable text), DOCX or TXT · up to 20 MB · read in your browser, never uploaded</p>
             </div>
           </div>
         )}

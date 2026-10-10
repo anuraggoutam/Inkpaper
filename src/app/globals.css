@@ -125,6 +125,9 @@ input[type="range"] {
   margin: 0;
   padding: 0;
   background: #fff;
+  /* Keep ink colours and paper rules exactly as previewed when the browser prints. */
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .print-page {
