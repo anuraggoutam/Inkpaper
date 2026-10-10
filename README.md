@@ -1,3 +1,5 @@
+<p align="center"><img src="public/logo.png" width="96" height="96" alt="InkPaper logo"></p>
+
 # InkPaper
 
 InkPaper turns your own typed or solved assignment into handwritten-style A4 pages and exports them as a real, printable PDF.

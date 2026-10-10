@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { Logo } from "@/components/studio/Logo";
 
 const ACCEPT = ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
@@ -29,7 +30,8 @@ export function TopBar({ status, fileName, saveNote, pageCount, canExport, showS
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-panel px-3 sm:gap-3 sm:px-4">
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2">
+        <Logo size={28} className="shrink-0" />
         <span className="text-[19px] font-semibold tracking-tight text-ink">
           Ink<span className="text-accent">Paper</span>
         </span>
