@@ -4,73 +4,46 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { PaperEditor } from "@/components/editor/PaperEditor";
 import { PreviewPane } from "@/components/preview/PreviewPane";
 import { SettingsPanel } from "@/components/studio/SettingsPanel";
+import { TopBar, type Status } from "@/components/studio/TopBar";
 import { Notice } from "@/components/studio/controls";
+import { useDraft, useFileDrop, usePersistentSettings } from "@/components/studio/hooks";
 import { countQuestions, isEffectivelyEmpty, parseTextToBlocks } from "@/lib/document/parseText";
 import { SAMPLE_TEXT, SAMPLE_TITLE } from "@/lib/document/sample";
 import { checkCoverage } from "@/lib/handwriting/coverage";
 import { useHandwritingLayout } from "@/lib/layout/useHandwritingLayout";
 import { importFile } from "@/lib/parsers/importFile";
 import { ImportError } from "@/lib/parsers/types";
-import { safePdfFileName } from "@/lib/pdf/filename";
-import { coerceSettings, DEFAULT_SETTINGS, type RenderSettings } from "@/lib/validation/schema";
+import { exportPdf } from "@/lib/pdf/downloadPdf";
+import { DEFAULT_SETTINGS, type RenderSettings } from "@/lib/validation/schema";
 import { EMPTY_METADATA, type AssignmentDocument, type AssignmentMetadata } from "@/types/document";
 
-const SETTINGS_KEY = "inkpaper.settings.v2";
-const OLD_SETTINGS_KEY = "inkpaper.settings.v1";
-const ACCEPT = ".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
-
-type Status =
-  | { kind: "idle" }
-  | { kind: "importing"; name: string; size: number }
-  | { kind: "exporting" };
-
-function formatSize(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
-}
+const EMPTY_DOC: AssignmentDocument = { title: "", sourceFileName: "", text: "", metadata: EMPTY_METADATA };
 
 export function Studio() {
-  const [doc, setDoc] = useState<AssignmentDocument>({ title: "", sourceFileName: "", text: "", metadata: EMPTY_METADATA });
+  const [doc, setDoc] = useState<AssignmentDocument>(EMPTY_DOC);
   const [original, setOriginal] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = usePersistentSettings();
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [caretLine, setCaretLine] = useState<number | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(true);
   const [mobileView, setMobileView] = useState<"write" | "preview">("write");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const dragDepth = useRef(0);
 
-  // Settings (never document content) are remembered in this browser.
+  const { rememberWork, setRememberWork, savedAt } = useDraft(doc, setDoc);
+
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(SETTINGS_KEY);
-      const old = stored ? null : window.localStorage.getItem(OLD_SETTINGS_KEY);
-      if (stored) setSettings(coerceSettings(JSON.parse(stored)));
-      // v1 → v2: keep the user's choices but switch to the new practical-file paper default.
-      else if (old) setSettings(coerceSettings({ ...JSON.parse(old), paperType: "practical", marginMm: DEFAULT_SETTINGS.marginMm }));
-    } catch {
-      /* ignore unreadable storage */
-    }
     if (window.innerWidth < 1280) setShowSettings(false);
   }, []);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      /* storage may be unavailable */
-    }
-  }, [settings]);
 
-  // Warn before closing the tab with unsaved text (nothing is stored on disk).
+  // Warn before closing the tab with text that exists nowhere else.
   useEffect(() => {
-    if (!dirty || isEffectivelyEmpty(doc.text)) return;
+    if (rememberWork || !dirty || isEffectivelyEmpty(doc.text)) return;
     const handler = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty, doc.text]);
+  }, [rememberWork, dirty, doc.text]);
 
   // Typing stays responsive; the handwriting re-layout trails slightly behind.
   const deferredDoc = useDeferredValue(doc);
@@ -98,21 +71,28 @@ export function Studio() {
     setDoc((d) => ({ ...d, text }));
     setDirty(true);
   }, []);
-  const updateSettings = useCallback((patch: Partial<RenderSettings>) => setSettings((s) => ({ ...s, ...patch })), []);
+  const updateSettings = useCallback((patch: Partial<RenderSettings>) => setSettings((s) => ({ ...s, ...patch })), [setSettings]);
   const updateMetadata = useCallback((patch: Partial<AssignmentMetadata>) => setDoc((d) => ({ ...d, metadata: { ...d.metadata, ...patch } })), []);
+  const updateTitle = useCallback((title: string) => setDoc((d) => ({ ...d, title })), []);
+
+  /** Replace the editor text (import, sample, clear) and forget the previous file's notices. */
+  const replaceText = (text: string, patch: Partial<AssignmentDocument> = {}) => {
+    setDoc((d) => ({ ...d, ...patch, text }));
+    setWarnings([]);
+    setError(null);
+    setDirty(false);
+  };
 
   const handleFile = async (file: File) => {
     if (status.kind !== "idle") return;
     if (!isEffectivelyEmpty(doc.text) && !window.confirm(`Replace the current text with the contents of "${file.name}"?`)) return;
     setError(null);
-    setWarnings([]);
     setStatus({ kind: "importing", name: file.name, size: file.size });
     try {
       const result = await importFile(file);
-      setDoc((d) => ({ ...d, text: result.text, sourceFileName: file.name }));
+      replaceText(result.text, { sourceFileName: file.name });
       setOriginal(result.text);
       setWarnings(result.warnings);
-      setDirty(false);
     } catch (err) {
       setError(err instanceof ImportError ? err.message : "Something went wrong while reading this file. Try a different file or paste the text instead.");
     } finally {
@@ -120,54 +100,43 @@ export function Studio() {
     }
   };
 
-  const exportPdf = async () => {
-    if (status.kind !== "idle") return;
-    if (isEffectivelyEmpty(doc.text) && !doc.title.trim()) {
+  const empty = isEffectivelyEmpty(doc.text) && !doc.title.trim();
+
+  const runExport = async () => {
+    if (status.kind !== "idle" || !layout) return;
+    if (empty) {
       setError("The page is empty. Type, paste or import your assignment before exporting.");
       return;
     }
     setError(null);
     setStatus({ kind: "exporting" });
     try {
-      const response = await fetch("/api/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: doc, settings }),
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? `Export failed (HTTP ${response.status}).`);
-      }
-      const blob = await response.blob();
-      const head = new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer());
-      if (blob.size === 0 || head !== "%PDF-") throw new Error("The exported file was not a valid PDF.");
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = safePdfFileName(doc.title);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await exportPdf(doc, settings);
     } catch (err) {
-      setError(
-        err instanceof TypeError
-          ? "Could not reach the local InkPaper server. Make sure `npm run dev` (or `npm start`) is still running."
-          : err instanceof Error
-            ? err.message
-            : "PDF export failed.",
-      );
+      setError(err instanceof Error ? err.message : "PDF export failed.");
     } finally {
       setStatus({ kind: "idle" });
     }
   };
 
+  // Ctrl+P (Cmd+P) exports the PDF instead of printing the studio screen.
+  const exportRef = useRef(runExport);
+  exportRef.current = runExport;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        void exportRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const loadSample = () => {
     if (!isEffectivelyEmpty(doc.text) && !window.confirm("Replace the current text with the sample assignment?")) return;
-    setDoc((d) => ({ ...d, text: SAMPLE_TEXT, title: d.title || SAMPLE_TITLE, sourceFileName: "" }));
+    replaceText(SAMPLE_TEXT, { title: doc.title || SAMPLE_TITLE, sourceFileName: "" });
     setOriginal(null);
-    setWarnings([]);
-    setError(null);
   };
 
   const resetToOriginal = () => {
@@ -179,116 +148,37 @@ export function Studio() {
   };
 
   const clearAll = () => {
-    if (window.confirm("Clear the page? This removes all text from the editor.")) {
-      setDoc((d) => ({ ...d, text: "", sourceFileName: "" }));
+    // Student details stay: they are usually the same for the next assignment.
+    if (window.confirm("Start a new page? This removes the text and title. Your name and other details are kept.")) {
+      replaceText("", { title: "", sourceFileName: "" });
       setOriginal(null);
-      setWarnings([]);
-      setDirty(false);
     }
   };
 
-  const onDragEnter = (event: React.DragEvent) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    dragDepth.current++;
-    setDragging(true);
-  };
-  const onDragLeave = () => {
-    dragDepth.current = Math.max(0, dragDepth.current - 1);
-    if (dragDepth.current === 0) setDragging(false);
-  };
-  const onDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    dragDepth.current = 0;
-    setDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file) void handleFile(file);
-  };
+  const { dragging, handlers: dropHandlers } = useFileDrop((file) => void handleFile(file));
 
-  const busy = status.kind !== "idle";
-  const empty = isEffectivelyEmpty(doc.text) && !doc.title.trim();
-  const pageCount = layout?.pages.length ?? 0;
+  const pageCount = empty ? 0 : (layout?.pages.length ?? 0);
+  const saveNote = rememberWork
+    ? savedAt && !empty
+      ? { text: "saved in this browser", tone: "ok" as const }
+      : null
+    : dirty && !empty
+      ? { text: "edited · not saved", tone: "warn" as const }
+      : null;
 
   return (
-    <div
-      className="flex h-dvh flex-col"
-      onDragEnter={onDragEnter}
-      onDragOver={(event) => event.dataTransfer.types.includes("Files") && event.preventDefault()}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      {/* Top bar */}
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-panel px-3 sm:gap-3 sm:px-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[19px] font-semibold tracking-tight text-ink">
-            Ink<span className="text-accent">Paper</span>
-          </span>
-          <span className="hidden text-xs text-muted md:inline">handwritten assignment studio</span>
-        </div>
-        <div className="mx-2 hidden h-6 w-px bg-line sm:block" />
-        <div className="min-w-0 flex-1 truncate text-sm text-muted" aria-live="polite">
-          {status.kind === "importing" ? (
-            <span className="text-ink">
-              Reading {status.name} <span className="text-muted">({formatSize(status.size)})</span>…
-            </span>
-          ) : doc.sourceFileName ? (
-            <span>
-              <span className="text-ink">{doc.sourceFileName}</span>
-              {dirty && <span className="ml-2 rounded bg-warn-soft px-1.5 py-0.5 text-[11px] text-warn">edited · not saved</span>}
-            </span>
-          ) : (
-            !empty && <span>Untitled · {dirty ? "not saved" : "sample"}</span>
-          )}
-        </div>
-        <input
-          ref={fileInput}
-          type="file"
-          accept={ACCEPT}
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) void handleFile(file);
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInput.current?.click()}
-          disabled={busy}
-          className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm font-medium text-ink hover:border-accent/40 hover:text-accent disabled:opacity-50"
-        >
-          Import<span className="hidden sm:inline"> file</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowSettings((s) => !s)}
-          aria-pressed={showSettings}
-          className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${showSettings ? "border-accent/40 bg-accent-soft text-accent-strong" : "border-line bg-white text-ink hover:text-accent"}`}
-        >
-          Style
-        </button>
-        <button
-          type="button"
-          onClick={() => void exportPdf()}
-          disabled={busy || !layout}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {status.kind === "exporting" && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden />}
-          {status.kind === "exporting" ? (
-            "Exporting…"
-          ) : (
-            <span className="whitespace-nowrap">
-              Export<span className="hidden sm:inline"> PDF</span>
-              {pageCount > 0 && !empty && (
-                <span className="hidden font-normal opacity-80 lg:inline">
-                  {" "}
-                  · {pageCount} {pageCount === 1 ? "page" : "pages"}
-                </span>
-              )}
-            </span>
-          )}
-        </button>
-      </header>
+    <div className="flex h-dvh flex-col" {...dropHandlers}>
+      <TopBar
+        status={status}
+        fileName={doc.sourceFileName}
+        saveNote={saveNote}
+        pageCount={pageCount}
+        canExport={layout !== null}
+        showSettings={showSettings}
+        onToggleSettings={() => setShowSettings((s) => !s)}
+        onImport={(file) => void handleFile(file)}
+        onExport={() => void runExport()}
+      />
 
       <div className="flex border-b border-line bg-panel p-1 md:hidden" role="tablist" aria-label="View">
         {(["write", "preview"] as const).map((view) => (
@@ -333,10 +223,14 @@ export function Studio() {
             {stats.coverage.hasDevanagari && (
               <Notice tone="info">Hindi/Devanagari text is written with the Kalam handwriting fallback. Check the result before printing.</Notice>
             )}
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs text-muted">
               <span className="tabular-nums">
-                {stats.words} words · {stats.questions} {stats.questions === 1 ? "question" : "questions"} detected
+                {stats.words} words · {stats.questions} {stats.questions === 1 ? "question" : "questions"}
               </span>
+              <label className="flex cursor-pointer items-center gap-1.5" title="Your text, title and details stay in this browser only. Turning this off deletes them.">
+                <input type="checkbox" className="accent-accent" checked={rememberWork} onChange={(event) => setRememberWork(event.target.checked)} />
+                Keep my work in this browser
+              </label>
               <span className="flex gap-3">
                 {empty && (
                   <button type="button" className="font-medium text-accent hover:underline" onClick={loadSample}>
@@ -350,7 +244,7 @@ export function Studio() {
                 )}
                 {!empty && (
                   <button type="button" className="hover:text-danger hover:underline" onClick={clearAll}>
-                    Clear
+                    New page
                   </button>
                 )}
               </span>
@@ -374,7 +268,7 @@ export function Studio() {
               onSettings={updateSettings}
               onResetSettings={() => setSettings(DEFAULT_SETTINGS)}
               doc={doc}
-              onTitle={(title) => setDoc((d) => ({ ...d, title }))}
+              onTitle={updateTitle}
               onMetadata={updateMetadata}
             />
           </aside>

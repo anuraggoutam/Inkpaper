@@ -119,20 +119,32 @@ export function TextField({
   value,
   onChange,
   placeholder,
+  hint,
+  action,
   maxLength = 200,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  hint?: string;
+  /** Small button shown at the right of the label (e.g. "Today"). */
+  action?: { label: string; onClick: () => void };
   maxLength?: number;
 }) {
   const id = useId();
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-xs text-muted">
-        {label}
-      </label>
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="block text-xs text-muted">
+          {label}
+        </label>
+        {action && (
+          <button type="button" onClick={action.onClick} className="text-xs font-medium text-accent hover:underline">
+            {action.label}
+          </button>
+        )}
+      </div>
       <input
         id={id}
         type="text"
@@ -142,6 +154,7 @@ export function TextField({
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm text-ink placeholder:text-[#b3ada1] focus:border-accent focus:outline-none"
       />
+      {hint && <p className="mt-1 text-[11px] leading-snug text-muted">{hint}</p>}
     </div>
   );
 }

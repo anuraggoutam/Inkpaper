@@ -200,15 +200,24 @@ function blockRows(block: DocumentBlock, index: number, ctx: WrapContext, rows: 
   // Doesn't fit in the margin: a typed label simply stays inline; nothing is lost.
   if (!words) return blockRowsInner(block, index, ctx, rows);
 
+  withMarginWords(words, block.sourceLine, false, rows, () =>
+    blockRowsInner(typed ? { ...block, text: typed.rest } : block, index, ctx, rows),
+  );
+}
+
+/**
+ * Write a block's rows with `words` hanging in the margin of its first written line.
+ * A block with no written line (only "Ans:", or a label on a blank line) gets a line of its own.
+ */
+function withMarginWords(words: RowWord[], sourceLine: number, keepWithNext: boolean, rows: Row[], writeBlock: () => void): void {
   const start = rows.length;
-  blockRowsInner(typed ? { ...block, text: typed.rest } : block, index, ctx, rows);
+  writeBlock();
   const first = rows.slice(start).find((row) => row.words.length > 0);
   if (first) {
     first.words.unshift(...words);
   } else {
-    // The line was only "Ans:" — keep it as a line of its own.
     rows.splice(start);
-    rows.push({ words, sourceLine: block.sourceLine, collapsible: false, keepWithNext: false });
+    rows.push({ words, sourceLine, collapsible: false, keepWithNext });
   }
 }
 
@@ -225,16 +234,7 @@ function customLabelRows(block: DocumentBlock, index: number, ctx: WrapContext, 
     const inline = block.text ? `${label} ${block.text}` : label;
     return blockRowsInner({ ...block, type: block.text ? block.type : "paragraph", text: inline }, index, plain, rows);
   }
-  const start = rows.length;
-  blockRowsInner(block, index, plain, rows);
-  const first = rows.slice(start).find((row) => row.words.length > 0);
-  if (first) {
-    first.words.unshift(...words);
-  } else {
-    // Label on an otherwise empty line.
-    rows.splice(start);
-    rows.push({ words, sourceLine: block.sourceLine, collapsible: false, keepWithNext: block.type === "question" });
-  }
+  withMarginWords(words, block.sourceLine, block.type === "question", rows, () => blockRowsInner(block, index, plain, rows));
 }
 
 function blankRow(sourceLine: number, collapsible: boolean): Row {

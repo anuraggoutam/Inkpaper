@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { Compartment, EditorState, RangeSetBuilder } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, placeholder, type DecorationSet, type ViewUpdate } from "@codemirror/view";
-import { findAnswerStarts, MARGIN_MARK, parseTextToBlocks, splitMarginPrefix, splitQuestionLabel } from "@/lib/document/parseText";
+import { findAnswerStarts, MARGIN_MARK, nextQuestionNumber, parseTextToBlocks, splitMarginPrefix, splitQuestionLabel } from "@/lib/document/parseText";
+import type { DocumentBlock } from "@/types/document";
 
 const PLACEHOLDER = `Type or paste your assignment here…
 
@@ -40,6 +41,9 @@ const typedAnswerLabel = Decoration.mark({ class: "cm-qlabel cm-anslabel" });
 const customLabel = Decoration.mark({ class: "cm-qlabel cm-customlabel" });
 /** Hides the "» " that stores a margin label in the text. */
 const hiddenMark = Decoration.replace({});
+
+/** Marks text replaced by the app (import, sample, reset) so it isn't reported back as a user edit. */
+const externalChange = Annotation.define<boolean>();
 
 /** Width of the margin column (px) — matches --margin-line in globals.css. */
 const MARGIN_PX = 64;
@@ -77,14 +81,23 @@ type LineLabel =
   | { kind: "autoQuestion" | "typedAnswer" | "autoAnswer"; label: string }
   | { kind: "none"; label: "" };
 
+function parseLine(text: string, options: EditorOptions): DocumentBlock | undefined {
+  return parseTextToBlocks(text, options)[0];
+}
+
 /** What the margin currently shows for a line, and where that label comes from. */
-function lineLabel(text: string, lineIndex: number, answers: Map<number, string | null>, options: EditorOptions): LineLabel {
+function lineLabel(
+  text: string,
+  lineIndex: number,
+  answers: Map<number, string | null>,
+  options: EditorOptions,
+  block = parseLine(text, options),
+): LineLabel {
   const custom = splitMarginPrefix(text);
   if (custom) return { kind: "custom", label: custom.label, prefixLength: custom.prefixLength };
   const answer = answers.get(lineIndex);
   if (answer === null) return { kind: "autoAnswer", label: "Ans." };
   if (answer !== undefined) return { kind: "typedAnswer", label: answer };
-  const [block] = parseTextToBlocks(text, options);
   const split = block?.type === "question" && options.questionNumberInMargin ? splitQuestionLabel(text) : null;
   if (split && split.label.length <= MAX_MARGIN_LABEL) return { kind: "autoQuestion", label: split.label };
   return { kind: "none", label: "" };
@@ -98,8 +111,8 @@ function questionDecorations(options: EditorOptions) {
     for (const { from, to } of view.visibleRanges) {
       for (let pos = from; pos <= to; ) {
         const line = view.state.doc.lineAt(pos);
-        const [block] = parseTextToBlocks(line.text, options);
-        const info = lineLabel(line.text, line.number - 1, answers, options);
+        const block = parseLine(line.text, options);
+        const info = lineLabel(line.text, line.number - 1, answers, options, block);
         if (block?.type === "question") builder.add(line.from, line.from, questionLine);
         if (info.kind === "custom") {
           const markAt = line.text.indexOf(MARGIN_MARK);
@@ -182,7 +195,8 @@ export function PaperEditor({ text, onChange, onCaretLine, options }: PaperEdito
           EditorView.contentAttributes.of({ spellcheck: "true", "aria-label": "Assignment text", autocapitalize: "sentences" }),
           decorations.current.of(questionDecorations(options)),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
+            const external = update.transactions.some((tr) => tr.annotation(externalChange));
+            if (update.docChanged && !external) callbacks.current.onChange(update.state.doc.toString());
             if ((update.docChanged || update.selectionSet) && update.view.hasFocus) {
               callbacks.current.onCaretLine(update.state.doc.lineAt(update.state.selection.main.head).number - 1);
             }
@@ -210,7 +224,7 @@ export function PaperEditor({ text, onChange, onCaretLine, options }: PaperEdito
     const current = view.state.doc.toString();
     if (current === text) return;
     const head = Math.min(view.state.selection.main.head, text.length);
-    view.dispatch({ changes: { from: 0, to: current.length, insert: text }, selection: { anchor: head } });
+    view.dispatch({ changes: { from: 0, to: current.length, insert: text }, selection: { anchor: head }, annotations: externalChange.of(true) });
   }, [text]);
 
   useEffect(() => {
@@ -274,13 +288,11 @@ export function PaperEditor({ text, onChange, onCaretLine, options }: PaperEdito
     });
   };
 
-  const nextQuestionNumber = () => (text.match(/^\s*q(?:ues(?:tion)?)?\s*[.:]?\s*(\d+)/gim) ?? []).length + 1;
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-panel px-4 py-2" role="toolbar" aria-label="Line formatting">
         <span className="mr-1 text-xs text-muted">Mark line as</span>
-        <ToolButton onClick={() => applyPrefix(`Q${nextQuestionNumber()}. `, /^\s*q(?:ues(?:tion)?)?\s*[.:]?\s*\d*\s*[.:)]?\s*/i)} title="Question (Q1.)">
+        <ToolButton onClick={() => applyPrefix(`Q${nextQuestionNumber(parseTextToBlocks(text, options))}. `, /^\s*q(?:ues(?:tion)?)?\s*[.:]?\s*\d*\s*[.:)]?\s*/i)} title="Question (Q1.)">
           Question
         </ToolButton>
         <ToolButton onClick={() => applyPrefix("# ", /^#{1,3}\s+/)} title="Heading (# )">

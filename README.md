@@ -54,7 +54,12 @@ This also runs on http://127.0.0.1:3000. Once installed, the app works fully off
 - **Bullets:** start the line with `- `, `* ` or `•`. Indent with spaces to nest them.
 - **Sub-parts:** `(a)`, `a)`, `(ii)` and `(3)` get a hanging indent.
 - Blank lines are kept as empty ruled lines.
-- The **Question / Heading / Bullet** buttons add or remove these markers on the current line.
+- The **Question / Heading / Bullet** buttons add or remove these markers on the current line. **Question** uses the next free number, one more than the highest question already on the page.
+
+### Keep your work
+Tick **Keep my work in this browser** under the editor to keep your text, title and student details between visits. They are saved in this browser shortly after each change and restored when you open InkPaper again. Untick it to delete the saved copy. It is off by default. While it is off, InkPaper warns you before you close a tab that has unsaved text.
+
+**New page** clears the text and title for the next assignment but keeps your name, roll number, course and subject.
 
 ### Import a file
 Click **Import file**, or drag a file anywhere onto the window.
@@ -80,12 +85,12 @@ The **Style** panel controls:
   - **Ruled:** a blue-lined notebook with a red margin line.
   - **Plain.**
   - Page numbers are optional on all three.
-- **Title and student details:** an optional title, plus name, roll number, course, subject and date on page 1. The details are off by default.
+- **Assignment** (top of the panel): the title or topic, and the date (**Today** fills it in as DD/MM/YYYY). On practical-file paper they are written in the TOPIC and DATE boxes. Turn on **Student details on page 1** to add your name, roll number, course and subject; they are off by default.
 
 The handwriting "variation" is deterministic. The same text, settings and seed always give exactly the same pages, both in the preview and in the PDF. Variation never changes the text and never pushes text outside the writing area.
 
 ### Export
-Click **Export PDF**. The file is named after the title, for example `physics-practical-3-handwritten.pdf`, or `assignment-handwritten.pdf` if there is no title.
+Click **Export PDF**, or press **Ctrl+P** (Cmd+P on a Mac). The file is named after the title, for example `physics-practical-3-handwritten.pdf`, or `assignment-handwritten.pdf` if there is no title.
 
 The PDF is A4 portrait. It keeps selectable and searchable text and embeds the handwriting fonts. It is produced by the same renderer as the preview, running in a local headless Chromium. It is not a screenshot.
 
@@ -95,7 +100,7 @@ The PDF is A4 portrait. It keeps selectable and searchable text and embeds the h
 
 - Files are read **in your browser** and kept in memory. They are never uploaded or stored on disk.
 - When you export, the text is sent only to the InkPaper server on your own machine (`127.0.0.1`). That server prints it with a local Chromium and immediately returns the PDF. Nothing is stored or logged; assignment text is never written to logs.
-- Only your style settings are remembered, in your browser's localStorage. Your text is not.
+- Your style settings are remembered in your browser's localStorage. Your text, title and student details are stored there only if you tick **Keep my work in this browser**, and they never leave the browser.
 - At runtime the app makes no external network requests. The export browser blocks every request that is not to the local app.
 - InkPaper is a **personal, single-user local tool**. Do not expose it to a network or the internet without a separate security review. The export API refuses requests that are not addressed to localhost.
 
@@ -169,6 +174,8 @@ npm run verify:export   # end-to-end PDF check against a running server (npm run
 
 ### How it works
 - `src/lib/document/parseText.ts`: editor text → typed blocks (question / heading / paragraph / list).
+- `src/lib/storage/local.ts`: everything kept in localStorage (settings, the opt-in draft). `src/components/studio/hooks.ts` wires it into the studio.
+- `src/lib/pdf/downloadPdf.ts`: the browser side of export (request, validate `%PDF-`, download).
 - `src/lib/layout/`: a pure layout engine. Words are measured with the real font on a canvas, wrapped to the writing width, and placed on ruled-line baselines. Pagination keeps headings and questions with their first answer line. Variation is seeded and bounded.
 - `src/components/preview/PageSvg.tsx`: one SVG per A4 page. It is used both by the preview and by `/print`.
 - `src/app/api/export/route.ts` + `src/lib/pdf/renderPdf.ts`: validate the typed payload with Zod, open `/print` in headless Chromium (only local requests are allowed), wait for the fonts, and run `page.pdf({ format: "A4", printBackground: true, preferCSSPageSize: true })`.

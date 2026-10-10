@@ -64,50 +64,32 @@ export function isQuestionLikeLabel(label: string): boolean {
 }
 
 function classifyLine(raw: string, index: number, options: ParseOptions): DocumentBlock {
-  {
-    const line = raw.replace(/\s+$/, "");
-    const indent = line.length - line.trimStart().length;
-    const body = line.trimStart();
-    const id = `b${index}`;
+  const line = raw.replace(/\s+$/, "");
+  const indent = line.length - line.trimStart().length;
+  const body = line.trimStart();
+  const id = `b${index}`;
 
-    if (body === "") return { id, type: "paragraph", text: "", sourceLine: index };
+  if (body === "") return { id, type: "paragraph", text: "", sourceLine: index };
 
-    const heading = HEADING.exec(body);
-    if (heading && indent === 0) {
-      return { id, type: "heading", text: heading[2]!, level: heading[1]!.length, sourceLine: index };
-    }
-
-    if (indent === 0 && (Q_PREFIX.test(body) || (options.numberedLinesAreQuestions && NUMBERED.test(body)))) {
-      return { id, type: "question", text: body, sourceLine: index };
-    }
-
-    const bullet = BULLET.exec(body);
-    if (bullet) {
-      return {
-        id,
-        type: "list",
-        listKind: "unordered",
-        text: bullet[2]!,
-        level: Math.min(3, Math.floor(indent / 2)),
-        indent,
-        sourceLine: index,
-      };
-    }
-
-    if (SUB_ITEM.test(body) || (indent > 0 && NUMBERED.test(body))) {
-      return {
-        id,
-        type: "list",
-        listKind: "ordered",
-        text: body,
-        level: Math.min(3, Math.floor(indent / 2)),
-        indent,
-        sourceLine: index,
-      };
-    }
-
-    return { id, type: "paragraph", text: body, indent, sourceLine: index };
+  const heading = HEADING.exec(body);
+  if (heading && indent === 0) {
+    return { id, type: "heading", text: heading[2]!, level: heading[1]!.length, sourceLine: index };
   }
+
+  if (indent === 0 && (Q_PREFIX.test(body) || (options.numberedLinesAreQuestions && NUMBERED.test(body)))) {
+    return { id, type: "question", text: body, sourceLine: index };
+  }
+
+  const level = Math.min(3, Math.floor(indent / 2));
+  const bullet = BULLET.exec(body);
+  if (bullet) {
+    return { id, type: "list", listKind: "unordered", text: bullet[2]!, level, indent, sourceLine: index };
+  }
+  if (SUB_ITEM.test(body) || (indent > 0 && NUMBERED.test(body))) {
+    return { id, type: "list", listKind: "ordered", text: body, level, indent, sourceLine: index };
+  }
+
+  return { id, type: "paragraph", text: body, indent, sourceLine: index };
 }
 
 // The number part of a question: "Q1", "Q1 a)", "Q.2(b)", "Question 3:", "4.", "5 b)".
@@ -162,6 +144,22 @@ export function findAnswerStarts(blocks: DocumentBlock[]): Map<number, string | 
 
 export function countQuestions(blocks: DocumentBlock[]): number {
   return blocks.filter((block) => block.type === "question").length;
+}
+
+/**
+ * The number to give a newly marked question: one more than the highest question number
+ * already written ("Q1", "Q.3", "4.", or a margin label like "Q5"), so gaps and reordering
+ * never produce a duplicate.
+ */
+export function nextQuestionNumber(blocks: DocumentBlock[]): number {
+  let highest = 0;
+  for (const block of blocks) {
+    if (block.type !== "question") continue;
+    const label = block.marginLabel ?? splitQuestionLabel(block.text)?.label ?? "";
+    const number = Number(/\d{1,3}/.exec(label)?.[0] ?? 0);
+    highest = Math.max(highest, number);
+  }
+  return highest + 1;
 }
 
 export function isEffectivelyEmpty(text: string): boolean {
