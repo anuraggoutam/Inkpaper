@@ -33,6 +33,38 @@ export function parseTextToBlocks(input: string, options: ParseOptions): Documen
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
 
   return lines.map((raw, index) => {
+    const margin = splitMarginPrefix(raw);
+    if (!margin) return classifyLine(raw, index, options);
+    const block = classifyLine(margin.rest, index, options);
+    block.marginLabel = margin.label;
+    // A numbered margin label ("Q1", "Ex 2", "3(a)") makes the line a question.
+    if (isQuestionLikeLabel(margin.label) && block.type !== "heading") {
+      return { id: block.id, type: "question", text: margin.rest.trim(), sourceLine: index, marginLabel: margin.label };
+    }
+    return block;
+  });
+}
+
+/**
+ * Labels written in the editor's left margin are stored in the text as "label» text".
+ * "»" with an empty label means "no margin label on this line" and suppresses the automatic ones.
+ */
+export const MARGIN_MARK = "»";
+const MARGIN_PREFIX = /^([^»\n]{0,24})»[ ]?/;
+const ANSWER_LIKE = /^(?:ans(?:wer)?|sol(?:ution)?)\b/i;
+
+export function splitMarginPrefix(line: string): { label: string; rest: string; prefixLength: number } | null {
+  const match = MARGIN_PREFIX.exec(line);
+  if (!match) return null;
+  return { label: match[1]!.trim(), rest: line.slice(match[0].length), prefixLength: match[0].length };
+}
+
+export function isQuestionLikeLabel(label: string): boolean {
+  return label !== "" && !ANSWER_LIKE.test(label) && /\d/.test(label);
+}
+
+function classifyLine(raw: string, index: number, options: ParseOptions): DocumentBlock {
+  {
     const line = raw.replace(/\s+$/, "");
     const indent = line.length - line.trimStart().length;
     const body = line.trimStart();
@@ -75,7 +107,7 @@ export function parseTextToBlocks(input: string, options: ParseOptions): Documen
     }
 
     return { id, type: "paragraph", text: body, indent, sourceLine: index };
-  });
+  }
 }
 
 // The number part of a question: "Q1", "Q1 a)", "Q.2(b)", "Question 3:", "4.", "5 b)".
@@ -114,7 +146,12 @@ export function findAnswerStarts(blocks: DocumentBlock[]): Map<number, string | 
       afterQuestion = block.type === "question";
       return;
     }
-    if (block.type === "paragraph" && block.text === "") return;
+    if (block.type === "paragraph" && block.text === "" && block.marginLabel === undefined) return;
+    if (block.marginLabel !== undefined) {
+      // The user wrote their own margin label here; no automatic "Ans.".
+      afterQuestion = false;
+      return;
+    }
     const typed = block.type === "paragraph" ? splitAnswerLabel(block.text) : null;
     if (typed) starts.set(index, typed.label);
     else if (afterQuestion) starts.set(index, null);

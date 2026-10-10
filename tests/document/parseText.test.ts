@@ -58,6 +58,22 @@ describe("splitQuestionLabel", () => {
   });
 });
 
+describe("margin labels (label» text)", () => {
+  it("parses custom labels and classifies the rest", () => {
+    const blocks = parseTextToBlocks("Q7» What is DNA?\nSol» It is a molecule.\n» no label here\nNote» - bullet", opts);
+    expect(blocks[0]).toMatchObject({ type: "question", text: "What is DNA?", marginLabel: "Q7" });
+    expect(blocks[1]).toMatchObject({ type: "paragraph", text: "It is a molecule.", marginLabel: "Sol" });
+    expect(blocks[2]).toMatchObject({ type: "paragraph", text: "no label here", marginLabel: "" });
+    expect(blocks[3]).toMatchObject({ type: "list", text: "bullet", marginLabel: "Note" });
+  });
+
+  it("custom labels replace the automatic Ans.", () => {
+    const blocks = parseTextToBlocks("Q1. Why?\nSol» Because.\nQ2. How?\n» Like this.\nQ3. What?\nThat.", opts);
+    const starts = findAnswerStarts(blocks);
+    expect([...starts.keys()].map((i) => blocks[i]!.text)).toEqual(["That."]);
+  });
+});
+
 describe("findAnswerStarts", () => {
   it("marks the first answer line after each question and typed Ans labels", () => {
     const blocks = parseTextToBlocks("Q1. a?\n\nfirst\nsecond\n# Heading\npara\nQ2. b?\n- item\nAnswer: typed\nAns no-colon", opts);

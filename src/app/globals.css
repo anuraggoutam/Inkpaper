@@ -101,6 +101,11 @@ body {
   color: #4a4f63;
 }
 
+.paper-editor .cm-customlabel {
+  color: var(--color-accent-strong);
+  font-weight: 500;
+}
+
 .paper-editor .cm-anslabel {
   color: #6a7395;
   font-weight: 400;

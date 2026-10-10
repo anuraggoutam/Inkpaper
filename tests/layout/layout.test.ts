@@ -78,6 +78,20 @@ describe("layoutDocument", () => {
     expect(off.pages[0]!.words.some((w) => w.text === "Ans.")).toBe(false);
   });
 
+  it("writes custom margin labels in the margin (or inline if too wide) and never loses them", () => {
+    const layout = layoutDocument(doc("Q1. Why?\nSol» Because.\nQ9» Custom question\n» plain"), settings(), measure);
+    const g = layout.geometry;
+    const words = layout.pages[0]!.words;
+    const sol = words.find((w) => w.text === "Sol")!;
+    const q9 = words.find((w) => w.text === "Q9")!;
+    for (const w of [sol, q9]) expect(w.x + w.width).toBeLessThan(g.marginLineX);
+    expect(words.some((w) => w.text === "Ans.")).toBe(false);
+    expect(words.some((w) => w.text.includes("»"))).toBe(false);
+    const wide = layoutDocument(doc("Experiment» Body"), settings({ marginMm: 10 }), measure);
+    expect(wide.pages[0]!.words.map((w) => w.text)).toEqual(["Experiment", "Body"]);
+    expect(wide.pages[0]!.words[0]!.x).toBeGreaterThanOrEqual(wide.geometry.textLeft);
+  });
+
   it("moves a typed Ans: label into the margin instead of writing it twice", () => {
     const layout = layoutDocument(doc("Q1. Why?\nAns: Because.\nAns:"), settings(), measure);
     const g = layout.geometry;

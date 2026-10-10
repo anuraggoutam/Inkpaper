@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Compartment, EditorState, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, placeholder, type DecorationSet, type ViewUpdate } from "@codemirror/view";
-import { findAnswerStarts, parseTextToBlocks, splitQuestionLabel } from "@/lib/document/parseText";
+import { findAnswerStarts, MARGIN_MARK, parseTextToBlocks, splitMarginPrefix, splitQuestionLabel } from "@/lib/document/parseText";
 
 const PLACEHOLDER = `Type or paste your assignment here…
 
@@ -37,6 +37,13 @@ interface PaperEditorProps {
 const questionLine = Decoration.line({ class: "cm-question" });
 const marginLabel = Decoration.mark({ class: "cm-qlabel" });
 const typedAnswerLabel = Decoration.mark({ class: "cm-qlabel cm-anslabel" });
+const customLabel = Decoration.mark({ class: "cm-qlabel cm-customlabel" });
+/** Hides the "» " that stores a margin label in the text. */
+const hiddenMark = Decoration.replace({});
+
+/** Width of the margin column (px) — matches --margin-line in globals.css. */
+const MARGIN_PX = 64;
+const MAX_CUSTOM_LABEL = 10;
 
 /** "Ans." shown in the margin; not part of the text (the handwriting adds it the same way). */
 class AnswerLabelWidget extends WidgetType {
@@ -65,45 +72,83 @@ function answerLines(doc: string, options: EditorOptions): Map<number, string | 
   return lines;
 }
 
-/** Marks question lines and hangs their number ("Q1 a).") into the left margin, like the handwritten page. */
+type LineLabel =
+  | { kind: "custom"; label: string; prefixLength: number }
+  | { kind: "autoQuestion" | "typedAnswer" | "autoAnswer"; label: string }
+  | { kind: "none"; label: "" };
+
+/** What the margin currently shows for a line, and where that label comes from. */
+function lineLabel(text: string, lineIndex: number, answers: Map<number, string | null>, options: EditorOptions): LineLabel {
+  const custom = splitMarginPrefix(text);
+  if (custom) return { kind: "custom", label: custom.label, prefixLength: custom.prefixLength };
+  const answer = answers.get(lineIndex);
+  if (answer === null) return { kind: "autoAnswer", label: "Ans." };
+  if (answer !== undefined) return { kind: "typedAnswer", label: answer };
+  const [block] = parseTextToBlocks(text, options);
+  const split = block?.type === "question" && options.questionNumberInMargin ? splitQuestionLabel(text) : null;
+  if (split && split.label.length <= MAX_MARGIN_LABEL) return { kind: "autoQuestion", label: split.label };
+  return { kind: "none", label: "" };
+}
+
+/** Marks question lines and hangs labels ("Q1 a).", "Ans.", custom ones) into the left margin. */
 function questionDecorations(options: EditorOptions) {
-  const build = (view: EditorView, answers: Map<number, string | null>): DecorationSet => {
+  const build = (view: EditorView, answers: Map<number, string | null>) => {
     const builder = new RangeSetBuilder<Decoration>();
+    const hidden = new RangeSetBuilder<Decoration>();
     for (const { from, to } of view.visibleRanges) {
       for (let pos = from; pos <= to; ) {
         const line = view.state.doc.lineAt(pos);
         const [block] = parseTextToBlocks(line.text, options);
-        const answer = answers.get(line.number - 1);
-        if (answer !== undefined) {
-          if (answer === null) builder.add(line.from, line.from, answerWidget);
-          else builder.add(line.from, line.from + answer.length, typedAnswerLabel);
-        } else if (block?.type === "question") {
-          builder.add(line.from, line.from, questionLine);
-          const split = options.questionNumberInMargin ? splitQuestionLabel(line.text) : null;
-          if (split && split.label.length <= MAX_MARGIN_LABEL) {
-            builder.add(line.from, line.from + split.label.length, marginLabel);
+        const info = lineLabel(line.text, line.number - 1, answers, options);
+        if (block?.type === "question") builder.add(line.from, line.from, questionLine);
+        if (info.kind === "custom") {
+          const markAt = line.text.indexOf(MARGIN_MARK);
+          if (info.label) {
+            builder.add(line.from, line.from + markAt, customLabel);
+            builder.add(line.from + markAt, line.from + info.prefixLength, hiddenMark);
+            hidden.add(line.from + markAt, line.from + info.prefixLength, hiddenMark);
+          } else {
+            builder.add(line.from, line.from + info.prefixLength, hiddenMark);
+            hidden.add(line.from, line.from + info.prefixLength, hiddenMark);
           }
+        } else if (info.kind === "autoAnswer") {
+          builder.add(line.from, line.from, answerWidget);
+        } else if (info.kind === "typedAnswer") {
+          builder.add(line.from, line.from + info.label.length, typedAnswerLabel);
+        } else if (info.kind === "autoQuestion") {
+          builder.add(line.from, line.from + info.label.length, marginLabel);
         }
         pos = line.to + 1;
       }
     }
-    return builder.finish();
+    return { decorations: builder.finish(), hidden: hidden.finish() };
   };
 
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      hidden: DecorationSet;
       answers: Map<number, string | null>;
       constructor(view: EditorView) {
         this.answers = answerLines(view.state.doc.toString(), options);
-        this.decorations = build(view, this.answers);
+        const built = build(view, this.answers);
+        this.decorations = built.decorations;
+        this.hidden = built.hidden;
       }
       update(update: ViewUpdate) {
         if (update.docChanged) this.answers = answerLines(update.state.doc.toString(), options);
-        if (update.docChanged || update.viewportChanged) this.decorations = build(update.view, this.answers);
+        if (update.docChanged || update.viewportChanged) {
+          const built = build(update.view, this.answers);
+          this.decorations = built.decorations;
+          this.hidden = built.hidden;
+        }
       }
     },
-    { decorations: (plugin) => plugin.decorations },
+    {
+      decorations: (value) => value.decorations,
+      // The caret skips over the hidden "» " as if it weren't there.
+      provide: (plugin) => EditorView.atomicRanges.of((view) => view.plugin(plugin)?.hidden ?? Decoration.none),
+    },
   );
 }
 
@@ -120,6 +165,7 @@ export function PaperEditor({ text, onChange, onCaretLine, options }: PaperEdito
   const decorations = useRef(new Compartment());
   const callbacks = useRef({ onChange, onCaretLine });
   callbacks.current = { onChange, onCaretLine };
+  const [marginEdit, setMarginEdit] = useState<{ lineNumber: number; top: number; value: string; original: string } | null>(null);
 
   // Create the editor once.
   useEffect(() => {
@@ -185,6 +231,49 @@ export function PaperEditor({ text, onChange, onCaretLine, options }: PaperEdito
     view.focus();
   };
 
+  /** Click in the left margin: open a small box to write that line's margin label. */
+  const openMarginEditor = (clientY: number) => {
+    const view = viewRef.current;
+    const hostEl = host.current;
+    if (!view || !hostEl) return;
+    const contentLeft = view.contentDOM.getBoundingClientRect().left;
+    const pos = view.posAtCoords({ x: contentLeft + 90, y: clientY }, false);
+    const line = view.state.doc.lineAt(pos);
+    const info = lineLabel(line.text, line.number - 1, answerLines(view.state.doc.toString(), options), options);
+    const top = view.lineBlockAt(line.from).top + view.documentTop - hostEl.getBoundingClientRect().top;
+    setMarginEdit({ lineNumber: line.number, top, value: info.label, original: info.label });
+  };
+
+  /** Write the margin label into the text as "label» " (null = cancel). */
+  const commitMarginEdit = (value: string | null) => {
+    const view = viewRef.current;
+    const edit = marginEdit;
+    setMarginEdit(null);
+    if (!view || !edit) return;
+    view.focus();
+    if (value === null || edit.lineNumber > view.state.doc.lines) return;
+    const next = value.replaceAll(MARGIN_MARK, "").trim().slice(0, MAX_CUSTOM_LABEL);
+    if (next === edit.original) return;
+    const line = view.state.doc.line(edit.lineNumber);
+    const info = lineLabel(line.text, line.number - 1, answerLines(view.state.doc.toString(), options), options);
+    const body =
+      info.kind === "custom"
+        ? line.text.slice(info.prefixLength)
+        : info.kind === "autoQuestion" || info.kind === "typedAnswer"
+          ? line.text.slice(info.label.length).trimStart()
+          : line.text;
+    // Empty label: drop a custom one, or hide an automatic Q/Ans label with a bare "»".
+    const replacement = next
+      ? `${next}${MARGIN_MARK} ${body}`
+      : info.kind === "custom" || info.kind === "none"
+        ? body
+        : `${MARGIN_MARK} ${body}`;
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: replacement },
+      selection: { anchor: line.from + replacement.length - body.length },
+    });
+  };
+
   const nextQuestionNumber = () => (text.match(/^\s*q(?:ues(?:tion)?)?\s*[.:]?\s*(\d+)/gim) ?? []).length + 1;
 
   return (
@@ -200,10 +289,45 @@ export function PaperEditor({ text, onChange, onCaretLine, options }: PaperEdito
         <ToolButton onClick={() => applyPrefix("- ", /^\s*[-*•]\s+/)} title="Bullet (- )">
           • Bullet
         </ToolButton>
+        <span className="ml-auto hidden text-[11px] text-muted lg:inline">Tip: click the left margin to write Q1, Ans, Sol…</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto bg-[#efece5] p-4 sm:p-5">
         <div className="mx-auto max-w-[720px] overflow-hidden rounded-[3px] shadow-[0_1px_2px_rgba(30,42,68,0.08),0_8px_24px_-12px_rgba(30,42,68,0.25)]">
-          <div ref={host} className="paper-editor" onClick={() => viewRef.current?.focus()} />
+          <div className="relative">
+            <div ref={host} className="paper-editor" onClick={() => viewRef.current?.focus()} />
+            {/* Clickable margin column: write Q1, Ans, Sol… next to any line. */}
+            <div
+              className="absolute inset-y-0 left-0 cursor-pointer hover:bg-accent/[0.04]"
+              style={{ width: MARGIN_PX }}
+              title="Click to write in the margin (Q1, Ans, Sol…)"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                openMarginEditor(event.clientY);
+              }}
+            />
+            {marginEdit && (
+              <input
+                autoFocus
+                aria-label="Margin label"
+                maxLength={MAX_CUSTOM_LABEL}
+                value={marginEdit.value}
+                placeholder="Q1 / Ans"
+                onChange={(event) => setMarginEdit({ ...marginEdit, value: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === "Tab") {
+                    event.preventDefault();
+                    commitMarginEdit(marginEdit.value);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    commitMarginEdit(null);
+                  }
+                }}
+                onBlur={() => commitMarginEdit(marginEdit.value)}
+                className="absolute left-1 z-10 h-8 rounded border border-accent/50 bg-white px-1.5 text-right text-[15px] text-ink shadow-sm outline-none placeholder:text-[#b3ada1]"
+                style={{ top: marginEdit.top, width: MARGIN_PX - 6 }}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>

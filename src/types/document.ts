@@ -10,6 +10,8 @@ export interface DocumentBlock {
   listKind?: "ordered" | "unordered";
   /** Leading indentation in space characters (paragraphs and lists). */
   indent?: number;
+  /** Label the user wrote in the left margin ("" = explicitly none); overrides automatic Q/Ans labels. */
+  marginLabel?: string;
   /** 0-based line in the source text this block came from (syncs editor and preview). */
   sourceLine: number;
 }

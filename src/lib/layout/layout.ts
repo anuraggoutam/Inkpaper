@@ -193,6 +193,7 @@ function marginWords(label: string, ctx: WrapContext, ink: InkName, key: string,
  * typed "Ans:") in the left margin. `answer` is undefined for blocks that don't start an answer.
  */
 function blockRows(block: DocumentBlock, index: number, ctx: WrapContext, rows: Row[], answer: string | null | undefined): void {
+  if (block.marginLabel !== undefined) return customLabelRows(block, index, ctx, rows);
   if (answer === undefined || !ctx.settings.answerLabelInMargin) return blockRowsInner(block, index, ctx, rows);
   const typed = answer !== null ? splitAnswerLabel(block.text) : null;
   const words = marginWords(typed?.label ?? "Ans.", ctx, answerInk(ctx.settings), `L${block.sourceLine}a`, block.sourceLine);
@@ -208,6 +209,31 @@ function blockRows(block: DocumentBlock, index: number, ctx: WrapContext, rows: 
     // The line was only "Ans:" — keep it as a line of its own.
     rows.splice(start);
     rows.push({ words, sourceLine: block.sourceLine, collapsible: false, keepWithNext: false });
+  }
+}
+
+/** A label the user typed into the margin: written there, or inline in front of the text if it's too wide. */
+function customLabelRows(block: DocumentBlock, index: number, ctx: WrapContext, rows: Row[]): void {
+  const label = block.marginLabel ?? "";
+  // Never let the text itself be re-labelled automatically.
+  const plain = { ...ctx, settings: { ...ctx.settings, questionNumberInMargin: false } };
+  if (label === "") return blockRowsInner(block, index, plain, rows);
+
+  const ink = block.type === "question" ? questionInk(ctx.settings) : answerInk(ctx.settings);
+  const words = marginWords(label, ctx, ink, `L${block.sourceLine}c`, block.sourceLine);
+  if (!words) {
+    const inline = block.text ? `${label} ${block.text}` : label;
+    return blockRowsInner({ ...block, type: block.text ? block.type : "paragraph", text: inline }, index, plain, rows);
+  }
+  const start = rows.length;
+  blockRowsInner(block, index, plain, rows);
+  const first = rows.slice(start).find((row) => row.words.length > 0);
+  if (first) {
+    first.words.unshift(...words);
+  } else {
+    // Label on an otherwise empty line.
+    rows.splice(start);
+    rows.push({ words, sourceLine: block.sourceLine, collapsible: false, keepWithNext: block.type === "question" });
   }
 }
 
